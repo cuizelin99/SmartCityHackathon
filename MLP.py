@@ -18,6 +18,35 @@ from torch.utils.data import DataLoader
 import torch.nn.functional as F
 
 preprocessed_data = genfromtxt('data/preprocessed_data.csv', delimiter=',', dtype = str)
+predict_raw_data = genfromtxt('data/test_kwh.csv', delimiter=',', dtype = str)
+
+predict_data = []
+
+skip_head = True
+
+for row in predict_raw_data:
+	if skip_head:
+		skip_head = False
+		continue
+	temp_list = []
+	temp_list.append(float(row[1]))
+	temp_list.append(float(row[10]))
+	temp_list.append(float(row[14]))
+	# temp_list.append(float(row[16]))
+	# temp_list.append(float(row[18]))
+	# temp_list.append(float(row[20]))
+	# temp_list.append(float(row[22]))
+	# temp_list.append(float(row[24]))
+	# temp_list.append(float(row[26]))
+	# temp_list.append(float(row[27]))
+	# temp_list.append(float(row[29]))
+	predict_data.append(temp_list)
+
+
+print("Predict Data length: ")
+print(len(predict_data))
+
+predict_data = np.array(predict_data)
 
 if torch.cuda.is_available():  
   dev = "cuda:0" 
@@ -26,7 +55,7 @@ else:
 device = torch.device(dev)  
 
 
-x_indices = [3, 11]
+x_indices = [7, 11, 12]
 y_indices = [5]
 
 num_inputs = len(x_indices)
@@ -73,41 +102,41 @@ testloader = torch.utils.data.DataLoader(test_data,batch_size=1000)
 
 # model definition
 class MLP(Module):
-    # define model elements
-    def __init__(self, n_inputs, n_outputs):
-        super(MLP, self).__init__()
-        # input to first hidden layer
-        self.hidden1 = Linear(n_inputs, n_inputs)
-        kaiming_uniform_(self.hidden1.weight, nonlinearity='relu')
-        self.act1 = ReLU()
-        # second hidden layer
-        self.hidden2 = Linear(n_inputs, n_inputs)
-        kaiming_uniform_(self.hidden2.weight, nonlinearity='relu')
-        self.act2 = ReLU()
-        # third hidden layer and output
-        self.hidden3 = Linear(n_inputs, n_outputs)
-        xavier_uniform_(self.hidden3.weight)
-        self.act3 = Sigmoid()
+	# define model elements
+	def __init__(self, n_inputs, n_outputs):
+		super(MLP, self).__init__()
+		# input to first hidden layer
+		self.hidden1 = Linear(n_inputs, n_inputs)
+		kaiming_uniform_(self.hidden1.weight, nonlinearity='relu')
+		self.act1 = ReLU()
+		# second hidden layer
+		self.hidden2 = Linear(n_inputs, n_inputs)
+		kaiming_uniform_(self.hidden2.weight, nonlinearity='relu')
+		self.act2 = ReLU()
+		# third hidden layer and output
+		self.hidden3 = Linear(n_inputs, n_outputs)
+		xavier_uniform_(self.hidden3.weight)
+		self.act3 = Sigmoid()
  
-    # forward propagate input
-    def forward(self, X):
-        # input to first hidden layer
-        X = self.hidden1(X)
-        X = self.act1(X)
-         # second hidden layer
-        X = self.hidden2(X)
-        X = self.act2(X)
-        # third hidden layer and output
-        X = self.hidden3(X)
-        X = self.act3(X)
-        return X
+	# forward propagate input
+	def forward(self, X):
+		# input to first hidden layer
+		X = self.hidden1(X)
+		X = self.act1(X)
+		 # second hidden layer
+		X = self.hidden2(X)
+		X = self.act2(X)
+		# third hidden layer and output
+		X = self.hidden3(X)
+		X = self.act3(X)
+		return X
 
 ### Loss function definition ###
 
 #MSE loss
 def mse(t1, t2):
-    diff = t1 - t2
-    return torch.sum(diff*diff)/diff.numel()
+	diff = t1 - t2
+	return torch.sum(diff*diff)/diff.numel()
 
 
 ### Training the model ###
@@ -117,11 +146,11 @@ model = MLP(num_inputs, num_outputs)
 optimizer = optim.SGD(model.parameters(), lr=1e-5)
 loss_fn = F.mse_loss
 
-num_epochs = 20
+num_epochs = 10
 
 # Main optimization loop
 for epoch in range(num_epochs):
-	running_loss = 0.0
+	training_loss = 0.0
 	print("Epoch {}/{}".format(epoch+1, num_epochs))
 	count = 0
 	
@@ -138,6 +167,24 @@ for epoch in range(num_epochs):
 		optimizer.step()
 		optimizer.zero_grad()
 		#print(f"Epoch = {epoch}, loss = {current_loss}, A = {A.detach().numpy()}, b = {b.item()}")
-		running_loss += current_loss
+		training_loss += current_loss
 
-	print("Epoch {}/{}. Running_Loss: {}".format(epoch+1, num_epochs, running_loss/count))
+	print("Epoch {}/{}. Training Loss: {}".format(epoch+1, num_epochs, training_loss/count))
+
+	count = 0
+	validation_loss = 0
+	for i, val in enumerate(testloader):
+		count += 1
+		# Compute the current predicted y's from x_dataset
+		y_predicted = model(val[0].type(torch.FloatTensor))
+		# See how far off the prediction is
+		current_loss = loss_fn(y_predicted, val[1].type(torch.FloatTensor))
+		validation_loss += current_loss
+
+	print("Epoch {}/{}. Validation Loss: {}".format(epoch+1, num_epochs, validation_loss/count))
+
+predict_tensor = torch.from_numpy(predict_data).type(torch.FloatTensor)
+yhat = model(predict_tensor)
+yhat = yhat.detach().numpy()
+
+np.savetxt('predictions.kwh', yhat, delimiter=',') 
