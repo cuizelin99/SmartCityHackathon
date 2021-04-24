@@ -15,7 +15,6 @@ from torch.utils.data import Subset
 from torch.nn.init import kaiming_uniform_
 from torch.nn.init import xavier_uniform_
 from torch.utils.data import DataLoader
-import torch.nn.functional as F
 
 preprocessed_data = genfromtxt('data/preprocessed_data.csv', delimiter=',', dtype = str)
 
@@ -28,9 +27,6 @@ device = torch.device(dev)
 
 x_indices = [3, 11]
 y_indices = [5]
-
-num_inputs = len(x_indices)
-num_outputs = len(y_indices)
 
 x = []
 y = []
@@ -69,53 +65,32 @@ for i in range(len(X_test)):
 
 trainloader = torch.utils.data.DataLoader(train_data,batch_size=1000)
 testloader = torch.utils.data.DataLoader(test_data,batch_size=1000)
+i1, l1 = next(iter(trainloader))
+print(i1.shape)
+print(l1.shape)
 
+### Model definition ###
+n = 2
 
-# model definition
-class MLP(Module):
-    # define model elements
-    def __init__(self, n_inputs, n_outputs):
-        super(MLP, self).__init__()
-        # input to first hidden layer
-        self.hidden1 = Linear(n_inputs, n_inputs)
-        kaiming_uniform_(self.hidden1.weight, nonlinearity='relu')
-        self.act1 = ReLU()
-        # second hidden layer
-        self.hidden2 = Linear(n_inputs, n_inputs)
-        kaiming_uniform_(self.hidden2.weight, nonlinearity='relu')
-        self.act2 = ReLU()
-        # third hidden layer and output
-        self.hidden3 = Linear(n_inputs, n_outputs)
-        xavier_uniform_(self.hidden3.weight)
-        self.act3 = Sigmoid()
- 
-    # forward propagate input
-    def forward(self, X):
-        # input to first hidden layer
-        X = self.hidden1(X)
-        X = self.act1(X)
-         # second hidden layer
-        X = self.hidden2(X)
-        X = self.act2(X)
-        # third hidden layer and output
-        X = self.hidden3(X)
-        X = self.act3(X)
-        return X
+# First we define the trainable parameters A and b 
+A = torch.randn((1, n), requires_grad=True)
+b = torch.randn(1, requires_grad=True)
+
+# Then we define the prediction model
+def model(x_input):
+	return A.mm(x_input) + b
+
 
 ### Loss function definition ###
 
-#MSE loss
-def mse(t1, t2):
-    diff = t1 - t2
-    return torch.sum(diff*diff)/diff.numel()
+def loss(y_predicted, y_target):
+	return ((y_predicted - y_target)**2).sum()/y_predicted.shape[1]
 
 
 ### Training the model ###
 
 # Setup the optimizer object, so it optimizes a and b.
-model = MLP(num_inputs, num_outputs)
-optimizer = optim.SGD(model.parameters(), lr=1e-5)
-loss_fn = F.mse_loss
+optimizer = optim.Adam([A, b], lr=0.1)
 
 num_epochs = 20
 
@@ -128,15 +103,16 @@ for epoch in range(num_epochs):
 	# Set the gradients to 0.
 	for i, val in enumerate(trainloader):
 		count += 1
+		optimizer.zero_grad()
+
 		# Compute the current predicted y's from x_dataset
-		y_predicted = model(val[0].type(torch.FloatTensor))
+		y_predicted = model(torch.transpose(val[0], 0, 1).type(torch.FloatTensor))
 		# See how far off the prediction is
-		current_loss = loss_fn(y_predicted, val[1].type(torch.FloatTensor))
+		current_loss = loss(y_predicted, val[1])
 		# Compute the gradient of the loss with respect to A and b.
 		current_loss.backward()
 		# Update A and b accordingly.
 		optimizer.step()
-		optimizer.zero_grad()
 		#print(f"Epoch = {epoch}, loss = {current_loss}, A = {A.detach().numpy()}, b = {b.item()}")
 		running_loss += current_loss
 
